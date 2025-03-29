@@ -122,6 +122,9 @@ export async function checkTransaction(req: Request, res: Response) {
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 9ccede3 (chore: get transaction controller)
 
 
 export async function getTransactions(req: Request, res: Response) {
@@ -186,6 +189,7 @@ export async function getTransactions(req: Request, res: Response) {
 }
 
 
+<<<<<<< HEAD
 export async function getSingleTransaction(req: Request, res: Response) {
     const tag = `[transaction.controller.ts][getSingleTransaction]`;
     const transactionId = req.params.id;
@@ -245,6 +249,9 @@ export async function getSingleTransaction(req: Request, res: Response) {
 
 =======
 >>>>>>> 1397077 (wip: transaction screening and fraud detection)
+=======
+
+>>>>>>> 9ccede3 (chore: get transaction controller)
 export async function test() {
     console.log("Testung")
     return
