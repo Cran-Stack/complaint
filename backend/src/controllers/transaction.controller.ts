@@ -4,6 +4,8 @@ import { ITransaction, ITransactionDocument, Transaction } from "../models/trans
 import { checkSuspiciousTransactions } from "../services/transaction.service";
 import Joi from "joi";
 import { sendResponse } from "../utils/api-response.utils";
+import { logger } from "../config/logger.config";
+
 
 export async function checkTransaction(req: Request, res: Response) {
     const tag = "[transaction.controller.ts][checkTransaction]";
@@ -107,6 +109,71 @@ export async function checkTransaction(req: Request, res: Response) {
         return
     }
 };
+
+
+
+
+
+export async function getTransactions(req: Request, res: Response) {
+
+    const tag = `[transaction.controller.ts][getTransactions]`;
+
+    logger.info(`${tag} attempting to get all transactions ...`);
+    try {
+        const status = req.query.status as string;
+        const page: number = parseInt(req.query.page as string) || 1;
+        const limit: number = parseInt(req.query.limit as string) || 10;
+
+        let query: Record<string, any> = {};
+        if (status) {
+            query.status = status;
+        }
+
+        logger.info(`${tag} Parsing page: ${page}, perPage: ${limit}`);
+        if (isNaN(page) || page < 1) {
+            logger.warn(`${tag} Invalid page number: ${page}. Defaulting to page 1.`);
+        }
+
+        logger.info(`${tag} Executing database query to fetch transactions`);
+        const transactions = await Transaction.find(query)
+            .sort({ createdAt: -1 })
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .lean();
+
+        const totalTransactions = await Transaction.countDocuments(query);
+        logger.info(`${tag} Total transactions count: ${totalTransactions}`);
+
+        const message = "Transactions list fetched successfully";
+        const totalPages = Math.ceil(totalTransactions / limit);
+
+        const data = {
+            transactions,
+            totalTransactions,
+            totalPages,
+            currentPage: page,
+        };
+
+
+
+        logger.info(`${tag} fetched all transactions successfully ...`);
+        sendResponse(res, {
+            message: "Successfully fetched all transactions",
+            status: "success",
+            data
+        }, 200);
+
+        return;
+    } catch (error: any) {
+        logger.error(`${tag} Error: ${error.message}`);
+        const message = "An error occurred while fetching the transactions list.";
+        sendResponse(res, {
+            status: "error",
+            message
+        }, 500);
+        return;
+    }
+}
 
 
 
