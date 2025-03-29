@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { User } from "../models/user.model";
 import { Transaction } from "../models/transaction.model";
 import { checkSuspiciousTransactions } from "../services/transaction.service";
+import OFACService from "../services/ofacService";
 
 
 
@@ -42,7 +43,14 @@ export async function checkTransaction(req: Request, res: Response){
         const { suspicious, reasons } = checkSuspiciousTransactions(lastTransactions);
 
         // Make OFAC call (mocking for now)
-        const checkOfAC = { score: 100, similarity: "Strong", flaggedName: "Kwame" };
+        const ofacResponse = await OFACService.screenName(name)
+        const { matchCount = 0, score = 0, similarity = "weak" } = ofacResponse.data ?? {};
+
+        const checkOfAC = {
+            score, 
+            similarity,
+            flaggedName: matchCount > 0 ? name : null,
+        };
 
         // Create new transaction and save suspicion status
         const newTransaction = new Transaction({
