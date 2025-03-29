@@ -6,6 +6,7 @@ import OFACService from "../services/ofacService";
 import Joi from "joi";
 import { sendResponse } from "../utils/api-response.utils";
 import { logger } from "../config/logger.config";
+import { isValidObjectId } from "mongoose";
 
 
 export async function checkTransaction(req: Request, res: Response) {
@@ -183,6 +184,62 @@ export async function getTransactions(req: Request, res: Response) {
     }
 }
 
+
+export async function getSingleTransaction(req: Request, res: Response) {
+    const tag = `[transaction.controller.ts][getSingleTransaction]`;
+    const transactionId = req.params.id;
+
+    try {
+        logger.info(`${tag} Received transaction ID: ${transactionId}`);
+
+        const schema = Joi.object({
+            id: Joi.string().custom((value, helpers) => {
+                if (!isValidObjectId(value)) {
+                    return helpers.error("any.invalid");
+                }
+                return value;
+            }).required()
+        });
+
+        const { error } = schema.validate(req.params);
+
+        if (error) {
+            logger.warn(`${tag} Validation error: ${error.details[0].message}`);
+            sendResponse(res, {
+                status: "error",
+                message: error.details[0].message
+            }, 400);
+            return;
+        }
+
+        logger.info(`${tag} Fetching transaction with ID: ${transactionId}`);
+
+        const transaction = await Transaction.findById(transactionId).lean();
+
+        if (!transaction) {
+            sendResponse(res, {
+                status: "error",
+                message: "Transaction not found."
+            }, 404);
+            return;
+        }
+
+        logger.info(`${tag} Transaction retrieved successfully.`);
+        sendResponse(res, {
+            status: "success",
+            message: "Transaction retrieved successfully.",
+            data: transaction
+        }, 200);
+        return;
+    } catch (error: any) {
+        logger.error(`${tag} Error: ${error.message}`);
+        sendResponse(res, {
+            status: "error",
+            message: "An error occurred while retrieving the transaction."
+        }, 500);
+        return;
+    }
+}
 
 
 export async function test() {
