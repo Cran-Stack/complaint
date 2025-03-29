@@ -11,8 +11,23 @@ export interface ITransaction {
     };
     status: "pending" | "approved" | "flagged" | "rejected";
     createdAt: Date;
-    suspicionReasons: string;
-    suspicious: boolean;
+    callbackUrl: string;
+    extrId: string;
+    ofac: {
+        score: number;
+        match?: boolean;
+        similarity?: string;
+    },
+    businessRulesChecks: {
+        suspicionReasons: string;
+        suspicious?: boolean;
+    },
+    asyncReport: {
+        score: number;
+        match?: boolean;
+        similarity?: string;
+        notes?: string;
+    }
 }
 
 export interface ITransactionDocument extends ITransaction, Document {}
@@ -27,9 +42,24 @@ const TransactionSchema = new Schema<ITransactionDocument>({
         account: { type: String, required: true },
     },
     status: { type: String, enum: ["pending", "approved", "flagged", "rejected"], default: "pending" },
-    suspicionReasons: { type: String, default: "" },
-    suspicious: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now },
+    callbackUrl: { type: String, required: true },
+    extrId: { type: String, required: true, unique: true },
+    ofac: {
+        score: { type: Number, default: 0 },
+        match: { type: Boolean, default: false },
+        similarity: { type: String, default: null },
+    },
+    businessRulesChecks: {
+        suspicionReasons: { type: String, default: null },
+        suspicious: { type: Boolean, default: false },
+    },
+    asyncReport: {
+        score: { type: Number, default: 0 },
+        match: { type: Boolean, default: false },
+        similarity: { type: String, default: null },
+        notes: { type: String, default: null },
+    }
 });
 
 export const Transaction = mongoose.model<ITransactionDocument>("Transaction", TransactionSchema);  

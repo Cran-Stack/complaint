@@ -1,22 +1,43 @@
+import eventEmitter from "../config/events.config";
 import { ITransaction, ITransactionDocument, Transaction } from "../models/transaction.model";
-import { sendResponse } from "../utils/api-response.utils";
+import { IUserDocument, User } from "../models/user.model";
 
 interface SuspiciousTransactionCheckResult {
   suspicious: boolean;
   reasons: string[];
 }
 
-export const checkSuspiciousTransactions = (
-  transactions: ITransaction[]
-): SuspiciousTransactionCheckResult => {
-  const tag = "[transaction.services.ts][checkSuspiciousTransactions]"
-  const reasons: string[] = [];
-  const largeTransactionThreshold = 5000; // Example threshold
+export const checkSuspiciousTransactions = async (
+  transaction: ITransaction,
+  user: IUserDocument
+): Promise<SuspiciousTransactionCheckResult> => {
+  const tag = "[transaction.services.ts][checkSuspiciousTransactions]";
+
+  // Fraud detection codes
+  const REASON_CODES = {
+    RAPID_SAME_ACCOUNT: "R01",  // Multiple transactions with similar amounts in a short time
+    RAPID_DIFF_ACCOUNTS: "R02", // Multiple transactions to different recipients in a short time
+    HIGH_RISK_COUNTRY: "R03",   // Transaction to a high-risk country
+    LARGE_TRANSACTION: "R04",   // Large transaction detected
+    RAPID_SHORT_INTERVAL: "R05" // Multiple transactions within a short time
+  };
+
+  // Constants for fraud detection
+  const numberOfLastTransactions = 5;
+  const reasons = new Set<string>();
+  const largeTransactionThreshold = 5000;
   const rapidTransactionInterval = 10 * 60 * 1000; // 10 minutes
   const uniqueRecipientsThreshold = 3;
   const unusualCountries = ["North Korea", "Iran", "Syria"];
-  const similarAmountThreshold = 100; // Define a threshold for amount similarity
+  const similarAmountThreshold = 100;
   const similarAmountInterval = 10 * 60 * 1000; // 10 minutes
+
+  // Fetch last `numberOfLastTransactions` for user
+  const transactions = await Transaction.find({ user: user.id })
+    .sort({ createdAt: -1 })
+    .limit(numberOfLastTransactions)
+    .lean()
+    .exec();
 
   transactions.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
@@ -24,21 +45,24 @@ export const checkSuspiciousTransactions = (
   const recipientSet = new Set<string>();
   const amountTimestamps: { amount: number; timestamp: number }[] = [];
 
+  // Check if current transaction is a large transaction
+  if (transaction.amount > largeTransactionThreshold) {
+    reasons.add(REASON_CODES.LARGE_TRANSACTION);
+  }
+
+  // Check if transaction is from a high-risk country
+  if (unusualCountries.includes(transaction.country)) {
+    reasons.add(REASON_CODES.HIGH_RISK_COUNTRY);
+  }
+
   for (const tx of transactions) {
-    if (tx.amount > largeTransactionThreshold) {
-      reasons.push(`Large transaction detected: $${tx.amount}`);
-    }
-
+    // Check rapid transactions in a short interval
     if (lastTransactionTime && tx.createdAt.getTime() - lastTransactionTime < rapidTransactionInterval) {
-      reasons.push("Multiple transactions in a short time period.");
+      reasons.add(REASON_CODES.RAPID_SHORT_INTERVAL);
     }
+
     lastTransactionTime = tx.createdAt.getTime();
-
     recipientSet.add(tx.recipient.account);
-
-    if (unusualCountries.includes(tx.country)) {
-      reasons.push(`Transaction to high-risk country: ${tx.country}`);
-    }
 
     // Check for similar amounts within a short time frame
     for (const record of amountTimestamps) {
@@ -46,7 +70,7 @@ export const checkSuspiciousTransactions = (
         Math.abs(record.amount - tx.amount) <= similarAmountThreshold &&
         tx.createdAt.getTime() - record.timestamp < similarAmountInterval
       ) {
-        reasons.push("Multiple transactions with similar amounts in a short time frame.");
+        reasons.add(REASON_CODES.RAPID_SAME_ACCOUNT);
         break;
       }
     }
@@ -54,22 +78,24 @@ export const checkSuspiciousTransactions = (
     amountTimestamps.push({ amount: tx.amount, timestamp: tx.createdAt.getTime() });
   }
 
-  console.log(`${tag} AmountTimestamps: ${amountTimestamps}`)
+  console.log(`${tag} AmountTimestamps: ${JSON.stringify(amountTimestamps)}`);
 
+  // Check if too many unique recipients exist in a short time
   if (recipientSet.size > uniqueRecipientsThreshold) {
-    reasons.push("Multiple transactions to different recipients within a short time.");
+    reasons.add(REASON_CODES.RAPID_DIFF_ACCOUNTS);
   }
 
-  // emit event to call the checkTransactionAsync method
+  const reasonsArray = [...reasons];
 
+  // Emit event to trigger async transaction checks
+  eventEmitter.emit("checkTransactionAsync", transaction);
 
   return {
-    suspicious: reasons.length > 0,
-    reasons,
+    suspicious: reasonsArray.length > 0,
+    reasons: reasonsArray, // Now contains codes like ["R01", "R04"]
   };
-
-  
 };
+
 
 
 
@@ -84,6 +110,8 @@ const checkTransactionViaAI = async (transaction: ITransaction): Promise<"yellow
 
 export const checkSuspiciousTransactionsAsync = async (transaction: ITransactionDocument) => {
   try {
+    const tag = "[transactions.service.ts][checkSuspiciousTransactionsAsync]";
+    console.log(`${tag} Checking Transaction Asynchronously. Transaction ID: ${transaction._id}`);
 
     let updatedStatus = transaction.status;
 
@@ -107,6 +135,11 @@ export const checkSuspiciousTransactionsAsync = async (transaction: ITransaction
 
       console.log(`Transaction ${transaction._id} updated to ${updatedStatus}`);
     }
+
+
+    // simulate wait for 5 seconds
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    console.log(`${tag} Transaction Asynchronously checked. Transaction ID: ${transaction._id}`);
 
   } catch (error) {
     console.error("Error checking transactions asynchronously:", error);

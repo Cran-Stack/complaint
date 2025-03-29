@@ -1,29 +1,54 @@
 import { Request, Response } from "express";
 import { User } from "../models/user.model";
-import { Transaction } from "../models/transaction.model";
+import { ITransaction, ITransactionDocument, Transaction } from "../models/transaction.model";
 import { checkSuspiciousTransactions } from "../services/transaction.service";
 import OFACService from "../services/ofacService";
+import Joi from "joi";
+import { sendResponse } from "../utils/api-response.utils";
 
-
-
-export async function checkTransaction(req: Request, res: Response){
+export async function checkTransaction(req: Request, res: Response) {
     const tag = "[transaction.controller.ts][checkTransaction]";
-    const numberOfLastTransactions = 5;
 
     try {
-        const { account, name, currency, country, amount, email } = req.body;
         console.log(`${tag} Request received: ${JSON.stringify(req.body)}`);
+        const schema = Joi.object({
+            account: Joi.string().required(),
+            name: Joi.string().min(3).max(100).required(),
+            currency: Joi.string().length(3).uppercase().required(),
+            country: Joi.string().length(2).uppercase().required(),
+            amount: Joi.number().positive().precision(2).required(),
+            callbackUrl: Joi.string().required(),
+            extrId: Joi.string().required(),
+        });
+
+        const { error, value } = schema.validate(req.body);
+        if (error) {
+            console.error(`${tag} Invalid request body: ${error.details[0].message}`);
+            sendResponse(res, { status: "error", message: error.details[0].message, data: null });
+            return
+        }
+
+        const { account, name, currency, country, amount, callbackUrl, extrId } = value;
+
+        // check if extrId is unique
+        const existingTransaction = await Transaction.findOne({ extrId });
+        if (existingTransaction) {
+            console.error(`${tag} ExtrId already exists: ${extrId}`);
+            sendResponse(res, { status: "error", message: "ExtrId already exists", data: null });
+            return;
+        }
+
 
         console.log(`${tag} Searching for user with account ${account}`);
-        let user = await User.findById(account);
+        let user = await User.findOne({ account });
 
         if (!user) {
             console.log(`${tag} Account not found, creating user with account: ${account}`);
             const newUser = new User({
                 name,
-                email: email ?? "",
                 currency,
                 country,
+                account
             });
             await newUser.save();
             user = newUser;
@@ -32,15 +57,8 @@ export async function checkTransaction(req: Request, res: Response){
             console.log(`${tag} User with account found, proceeding ...`);
         }
 
-        // Check user's last 5 transactions
-        const lastTransactions = await Transaction.find({ user: user.id })
-            .sort({ createdAt: -1 })
-            .limit(numberOfLastTransactions)
-            .lean()
-            .exec();
-
         // Run function on last transactions
-        const { suspicious, reasons } = checkSuspiciousTransactions(lastTransactions);
+        const { suspicious, reasons } = await checkSuspiciousTransactions(value, user);
 
         // Make OFAC call (mocking for now)
         const ofacResponse = await OFACService.screenName(name)
@@ -60,25 +78,32 @@ export async function checkTransaction(req: Request, res: Response){
             country,
             recipient: { name, account },
             status: "pending",
-            syncCheck: suspicious,  // Flag transaction if suspicious
-            asyncCheck: checkOfAC.score >= 90, // Example OFAC check condition
+            businessRulesChecks: { suspicious },
+            ofac: {
+                score: checkOfAC.score,
+                match: checkOfAC.similarity === "Strong" ? true : false,
+                similarity: checkOfAC.similarity,
+            },
             createdAt: new Date(),
+            callbackUrl,
+            extrId
         });
+
 
         if (suspicious) {
             newTransaction.status = "flagged";
-            newTransaction.suspicionReasons = reasons.join(",");
+            newTransaction.businessRulesChecks.suspicionReasons = reasons.join(",");
         }
 
         await newTransaction.save();
 
         console.log(`${tag} Transaction saved: ${newTransaction}`);
 
-        res.status(200).json({
+        sendResponse(res, {
             data: newTransaction,
             status: "success",
             message: "Transaction checked and saved successfully",
-        });
+        }, 200)
         return
     } catch (error) {
         console.error(`${tag} Error: ${error}`);
@@ -93,7 +118,7 @@ export async function checkTransaction(req: Request, res: Response){
 
 
 
-export async function test(){
+export async function test() {
     console.log("Testung")
-    return 
+    return
 }
