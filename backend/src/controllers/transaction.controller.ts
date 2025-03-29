@@ -1,13 +1,11 @@
 import { Request, Response } from "express";
 import { User } from "../models/user.model";
-import { ITransaction, ITransactionDocument, Transaction } from "../models/transaction.model";
+import { Transaction } from "../models/transaction.model";
 import { checkSuspiciousTransactions } from "../services/transaction.service";
-import OFACService from "../services/ofacService";
 import Joi from "joi";
 import { sendResponse } from "../utils/api-response.utils";
 import { logger } from "../config/logger.config";
 import { isValidObjectId } from "mongoose";
-
 
 
 export async function checkTransaction(req: Request, res: Response) {
