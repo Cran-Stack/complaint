@@ -7,6 +7,7 @@ import Joi from "joi";
 import { sendResponse } from "../utils/api-response.utils";
 import { logger } from "../config/logger.config";
 import { isValidObjectId } from "mongoose";
+import OFACService from "../services/ofacService";
 
 
 export async function checkTransaction(req: Request, res: Response) {
