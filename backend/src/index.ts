@@ -5,6 +5,7 @@ import { sendResponse } from "./utils/api-response.utils";
 import "../src/events/index.events"
 import { connectDB } from "./database/connection";
 import transactionRouter from "./routes/transaction.route";
+import userRouter from "./routes/user.route";
 
 dotenv.config(); // Load environment variables
 
@@ -24,6 +25,8 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 app.use(`${prefix}/transactions`, transactionRouter);
+app.use(`${prefix}/users`, userRouter);
+
 app.use(`${prefix}/test`, (request: Request, response: Response) => {
     sendResponse(response, {
         status: "success",
