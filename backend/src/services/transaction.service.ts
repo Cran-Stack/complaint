@@ -62,7 +62,7 @@ export const checkSuspiciousTransactions = async (
     }
 
     lastTransactionTime = tx.createdAt.getTime();
-    recipientSet.add(tx.recipient.account);
+    recipientSet.add(tx.sender.account);
 
     // Check for similar amounts within a short time frame
     for (const record of amountTimestamps) {

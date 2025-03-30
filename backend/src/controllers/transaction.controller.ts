@@ -1,27 +1,30 @@
 import { Request, Response } from "express";
 import { User } from "../models/user.model";
-import { ITransaction, ITransactionDocument, Transaction } from "../models/transaction.model";
+import { Transaction } from "../models/transaction.model";
 import { checkSuspiciousTransactions } from "../services/transaction.service";
 import Joi from "joi";
 import { sendResponse } from "../utils/api-response.utils";
 import { logger } from "../config/logger.config";
 import { isValidObjectId } from "mongoose";
+import OFACService from "../services/ofacService";
 
 
 export async function checkTransaction(req: Request, res: Response) {
   const tag = "[transaction.controller.ts][checkTransaction]";
 
-  try {
-    console.log(`${tag} Request received: ${JSON.stringify(req.body)}`);
-    const schema = Joi.object({
-      account: Joi.string().required(),
-      name: Joi.string().min(3).max(100).required(),
-      currency: Joi.string().length(3).uppercase().required(),
-      country: Joi.string().length(2).uppercase().required(),
-      amount: Joi.number().positive().precision(2).required(),
-      callbackUrl: Joi.string().required(),
-      extrId: Joi.string().required(),
-    });
+    try {
+        console.log(`${tag} Request received: ${JSON.stringify(req.body)}`);
+        const schema = Joi.object({
+            account: Joi.string().required(),
+            name: Joi.string().min(3).max(100).required(),
+            recipient_account: Joi.string().required(),
+            recipient_name: Joi.string().min(3).max(100).required(),
+            currency: Joi.string().length(3).uppercase().required(),
+            country: Joi.string().length(2).uppercase().required(),
+            amount: Joi.number().positive().precision(2).required(),
+            callbackUrl: Joi.string().required(),
+            extrId: Joi.string().required(),
+        });
 
     const { error, value } = schema.validate(req.body);
     if (error) {
@@ -30,7 +33,7 @@ export async function checkTransaction(req: Request, res: Response) {
       return
     }
 
-    const { account, name, currency, country, amount, callbackUrl, extrId } = value;
+        const { account, name,recipient_account,recipient_name, currency, country, amount, callbackUrl, extrId } = value;
 
     // check if extrId is unique
     const existingTransaction = await Transaction.findOne({ extrId });
@@ -44,45 +47,73 @@ export async function checkTransaction(req: Request, res: Response) {
     console.log(`${tag} Searching for user with account ${account}`);
     let user = await User.findOne({ account });
 
-    if (!user) {
-      console.log(`${tag} Account not found, creating user with account: ${account}`);
-      const newUser = new User({
-        name,
-        currency,
-        country,
-        account
-      });
-      await newUser.save();
-      user = newUser;
-      console.log(`${tag} New user created successfully: ${newUser}`);
-    } else {
-      console.log(`${tag} User with account found, proceeding ...`);
-    }
+        if (!user) {
+            console.log(`${tag} Account not found, creating user with account: ${account}`);
+            const newUser = new User({
+                name,
+                currency,
+                country,
+                account
+            });
+            await newUser.save();
+            user = newUser;
+            console.log(`${tag} New user created successfully: ${newUser}`);
+        } else {
+            console.log(`${tag} User with account found, proceeding ...`);
+        }
+
+        let recipient_user = await User.findOne({ account:recipient_account });
+
+        if (!recipient_user) {
+            console.log(`${tag} Account not found, creating user with account: ${account}`);
+            const newUser = new User({
+                name:recipient_name,
+                currency,
+                country,
+                account:recipient_account
+            });
+            await newUser.save();
+            recipient_user = newUser;
+            console.log(`${tag} New user created successfully: ${newUser}`);
+        } else {
+            console.log(`${tag} User with account found, proceeding ...`);
+        }
 
     // Run function on last transactions
     const { suspicious, reasons } = await checkSuspiciousTransactions(value, user);
 
-    // Make OFAC call (mocking for now)
-    const checkOfAC = { score: 100, similarity: "Strong", flaggedName: "Kwame" };
+        // Make OFAC call (mocking for now)
+        const ofacResponse = await OFACService.screenName(name)
+        console.log(`${tag} OFAC Response: ${JSON.stringify(ofacResponse)}`);
 
-    // Create new transaction and save suspicion status
-    const newTransaction = new Transaction({
-      user: user.id,
-      amount,
-      currency,
-      country,
-      recipient: { name, account },
-      status: "pending",
-      businessRulesChecks: { suspicious },
-      ofac: {
-        score: checkOfAC.score,
-        match: checkOfAC.similarity === "Strong" ? true : false,
-        similarity: checkOfAC.similarity,
-      },
-      createdAt: new Date(),
-      callbackUrl,
-      extrId
-    });
+        const { matchCount = 0, score = 0, similarity = "weak" } = ofacResponse.data ?? {};
+
+        const checkOfAC = {
+            score, 
+            similarity,
+            flaggedName: matchCount > 0 ? name : null,
+        };
+
+
+        // Create new transaction and save suspicion status
+        const newTransaction = new Transaction({
+            user: user.id,
+            amount,
+            currency,
+            country,
+            recipient: { recipient_name, recipient_account, user: recipient_user.id },
+            sender: { name, account, user: user.id },
+            status: "pending",
+            businessRulesChecks: { suspicious },
+            ofac: {
+                score: checkOfAC.score,
+                match: checkOfAC.similarity === "STRONG" ? true : false,
+                similarity: checkOfAC.similarity,
+            },
+            createdAt: new Date(),
+            callbackUrl,
+            extrId
+        });
 
 
     if (suspicious) {
@@ -110,7 +141,6 @@ export async function checkTransaction(req: Request, res: Response) {
     return
   }
 };
-
 
 
 export async function getTransactions(req: Request, res: Response) {
@@ -368,6 +398,61 @@ export async function getTransactionStats(req: Request, res: Response) {
   }
 }
 
+
+export function sendCallBack(req: Request, res: Response) {
+    const tag = "[transaction.controller.ts][sendCallBack]";
+    try {
+        const schema = Joi.object({
+            transactionId: Joi.string().required(),
+            callBackUrl: Joi.string().required(),
+            note: Joi.string().required(),
+        });
+
+        const { error, value } = schema.validate(req.body);
+
+        if (error) {
+            console.error(`${tag} Invalid request body: ${error.details[0].message}`);
+            sendResponse(res, { status: "error", message: error.details[0].message, data: null });
+            return
+        }
+
+        const { transactionId, callBackUrl, note } = value;
+
+        const transaction = Transaction.findById(transactionId);
+        if (!transaction) {
+            console.error(`${tag} Transaction not found: ${transactionId}`);
+            sendResponse(res, { status: "error", message: "Transaction not found", data: null });
+            return;
+        }
+
+        const requestBody = {
+            status: "success",
+            data: {
+                transaction:{
+                    transaction
+                },
+                note: note
+            }
+        };
+
+        fetch(callBackUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+          });
+        return;
+
+    } catch (error: any) {
+        console.error(`${tag} Error: ${error.message}`);
+        sendResponse(res, {
+            status: "error",
+            message: "An error occurred while updating the transaction status."
+        }, 500);
+        return;
+    }
+}
 
 
 export async function test() {
