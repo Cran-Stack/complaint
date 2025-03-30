@@ -6,8 +6,14 @@ export interface ITransaction {
     currency: string;
     country: string;
     recipient: {
+        recipient_name: string;
+        recipient_account: string;
+        user: mongoose.Types.ObjectId;
+    };
+    sender: {
         name: string;
         account: string;
+        user: mongoose.Types.ObjectId;
     };
     status: "pending" | "approved" | "flagged" | "rejected";
     createdAt: Date;
@@ -33,13 +39,18 @@ export interface ITransaction {
 export interface ITransactionDocument extends ITransaction, Document {}
 
 const TransactionSchema = new Schema<ITransactionDocument>({
-    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
     amount: { type: Number, required: true },
     currency: { type: String, required: true },
     country: { type: String, required: true },
     recipient: {
+        recipient_name: { type: String, required: true },
+        recipient_account: { type: String, required: true },
+        user: { type: Schema.Types.ObjectId, ref: "User", required: true }
+    },
+    sender: {
         name: { type: String, required: true },
         account: { type: String, required: true },
+        user: { type: Schema.Types.ObjectId, ref: "User", required: true }
     },
     status: { type: String, enum: ["pending", "approved", "flagged", "rejected"], default: "pending" },
     createdAt: { type: Date, default: Date.now },

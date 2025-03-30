@@ -29,7 +29,7 @@ interface OFACResponse {
 }
 
 class OFACService {
-  private API_BASE_URL: string;
+  private OFAC_SCREEN: string;
   private API_KEY: string;
   private MIN_SCORE: number;
   private SOURCES: string[];
@@ -39,7 +39,7 @@ class OFACService {
       throw new Error("OFAC API configuration is missing in environment variables.");
     }
 
-    this.API_BASE_URL = config.OFAC_API_URL;
+    this.OFAC_SCREEN = config.OFAC_API_URL;
     this.API_KEY = config.OFAC_API_KEY;
     this.MIN_SCORE = 95;
     this.SOURCES = ["sdn", "nonsdn", "un", "ofsi", "eu", "dpl", "sema", "bfs", "mxsat", "lfiu"];
@@ -59,7 +59,7 @@ class OFACService {
         ],
       };
 
-      const response = await fetch(`${this.API_BASE_URL}/ofac/check`, {
+      const response = await fetch(`${this.OFAC_SCREEN}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
